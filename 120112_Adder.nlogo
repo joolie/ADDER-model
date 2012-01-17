@@ -8,12 +8,16 @@
 ;; *******************************************************************
 breed [techs tech] ;; instead of turtles, let's call them technologies
 ;; breed [developers developer] 
+breed [peaks peak] ;; although they don't do much now, the peaks (targets/goals) may move later
 ;; *******************************************************************
 
 ;; *******************************************************************
 techs-own [
  product ;; the "product" of the technology
  cost ;; the cost of the technology
+ distance-to-target-product-values ;; list of the difference between the product the tech and all the target values
+ distance-to-nearest-target-product;; and a single variable with the minimum distance to a target
+ nearest-peak ;; allows the techs to be divided by the nearest peak (for competition and fitness determination)
  components ;; a list of components used
  operators ;; a list of operators used (this list is separate so that debugging is easier
  cost-of-components ;; cost of components used 
@@ -34,6 +38,7 @@ techs-own [
 globals [
  next-tech-ID ;; a counter for tech IDs
  list-of-operators
+ list-of-target-product-values ;; lists all the target product values, or the peaks in the fitness landscape
  failed-techs ;;  counting how many techs failed, i.e. were killed because product < 2, if kill-negative-techs? = TRUE
  cumulative-replacements ;;  counting cumulative replacements
  list-of-replacements ;; a list where number of replacements is saved during update, to draw a histogram
@@ -54,11 +59,16 @@ to setup
  ;;
  ;; INITIALIZING THE WORLD
  ;;
- clear-all
+ ;; (for this model to work with NetLogo's new plotting features,
+  ;; __clear-all-and-reset-ticks should be replaced with clear-all at
+  ;; the beginning of your setup procedure and reset-ticks at the end
+  ;; of the procedure.)
+  __clear-all-and-reset-ticks
  let seed-number 123456
- random-seed random-generator-seed ;; for setting the random seed
+ random-seed seed-number ;; for setting the random seed
  set list-of-operators [1 -1] ;; if we want to alter the % distribution of + and - operators, we can alter this e.g. [1 1 -1]
  set list-of-replacements [] ;; setting up an empty list
+ set list-of-target-product-values [2 3 5 8 16 21 34 55 89 144 ] ;; currently, fibonacci sequence, later replace with input from user to determine range and density of target values
  set-patch-size 5
  resize-world 0 50 0 50 ;; syntax: resize-world min-pxcor max-pxcor min-pycor max-pycor 
  set-default-shape techs "circle"
@@ -67,11 +77,13 @@ to setup
  print (word "--- " date-and-time " ---")
  print (word "-----------------------------------")
  print (" ")
- print (word "Random seed: " random-generator-seed)
- print (word "Max components " max-components)
- print (word "Kill negative techs? " kill-negative-techs?)
+ print (word "Random seed: " seed-number)
  print (" ")
-
+ foreach list-of-target-product-values [
+      create-peaks 1 [setxy ? ?
+      set shape "star"
+      set color blue
+    ]] ;; creates, locates, shapes and colors the peaks in the landscape according to the number of target-product-values in the list
  ;;
  ;; CREATING A SET OF PRIMITIVES
  ;;
@@ -106,7 +118,6 @@ end
 
 ;; *******************************************************************
 to go
- if ticks = stop-at-tick [stop]
  if stop-called? = TRUE [stop]
  tick
  if debugging-mode = TRUE [print (word "--- " ticks " ---")]
@@ -142,6 +153,9 @@ to update-active-repertoire-simple ;; simplest version of update
  foreach remove-duplicates [product] of techs [
      ask min-one-of techs with [product = ?] [cost] [set active-repertoire? TRUE] ;; the least-cost tech is added to AR
    ]
+ foreach remove-duplicates [nearest-peak] of techs [
+     ask min-one-of techs with [distance-to-nearest-target-product = ?] [cost] [set active-repertoire? TRUE] ;; the tech closest to each target/peak is added to AR
+   ]
  
  ask techs with [active-repertoire? = TRUE] [set color green]
  ask techs with [active-repertoire? = FALSE] [set color red]
@@ -151,7 +165,7 @@ end
 
 ;; *******************************************************************
 to create-next-tech
-  ;; needs to:
+  ;; needs to:	
   ;; 1. draw random components from the list of available components or zero
   ;; 2. assign + or - operators
   ;; 3. determine product 
@@ -236,6 +250,12 @@ to create-next-tech
       if debugging-mode = TRUE [print (word "At tick " ticks ", " techlevels-found)] ;; debugging...
     ]
     ;;
+    ;;DETERMINE DISTANCE TO TARGETS
+    ;;
+    set distance-to-target-product-values ( map [abs ( product - ? ) ] list-of-target-product-values ) 
+    set distance-to-nearest-target-product min distance-to-target-product-values    
+    set nearest-peak [who] of min-one-of peaks [distance myself] ;; find the nearest peak, for use later when determining fitness
+    ;;
     ;; ADVANCING TECH ID COUNTER
     ;;
     if viable-techs-created-this-turn? = TRUE [set next-tech-ID next-tech-ID + 1]
@@ -319,8 +339,6 @@ end
 to do-plotting
   set-current-plot "Replacements"
   histogram list-of-replacements
-  set-current-plot "Cumulative replacements"
-  plot sum list-of-replacements
 end
 ;; *******************************************************************
 
@@ -357,6 +375,7 @@ GRAPHICS-WINDOW
 0
 1
 ticks
+30.0
 
 BUTTON
 10
@@ -373,6 +392,7 @@ NIL
 NIL
 NIL
 NIL
+1
 
 BUTTON
 10
@@ -389,6 +409,7 @@ NIL
 NIL
 NIL
 NIL
+1
 
 SLIDER
 100
@@ -399,7 +420,7 @@ max-components
 max-components
 1
 20
-3
+4
 1
 1
 NIL
@@ -464,6 +485,7 @@ NIL
 NIL
 NIL
 NIL
+1
 
 MONITOR
 10
@@ -483,7 +505,7 @@ SWITCH
 123
 debugging-mode
 debugging-mode
-1
+0
 1
 -1000
 
@@ -495,97 +517,51 @@ PLOT
 Replacements
 Cascade size
 Cascade frequency
-1.0
+0.0
 10.0
 0.0
 10.0
 true
 false
+"" ""
 PENS
-"Replacements" 1.0 1 -16777216 true
-
-INPUTBOX
-100
-125
-252
-185
-stop-at-tick
-10000
-1
-0
-Number
-
-PLOT
-280
-415
-580
-635
-Cumulative replacements
-NIL
-NIL
-0.0
-100.0
-0.0
-50.0
-true
-false
-PENS
-"cumulative-repls" 1.0 0 -16777216 true
-
-INPUTBOX
-130
-230
-282
-290
-random-generator-seed
-123456
-1
-0
-Number
+"Replacements" 0.5 1 -16777216 true "" ""
 
 @#$#@#$#@
-WHAT IS IT?
------------
+## WHAT IS IT?
+
 This section could give a general understanding of what the model is trying to show or explain.
 
+## HOW IT WORKS
 
-HOW IT WORKS
-------------
 This section could explain what rules the agents use to create the overall behavior of the model.
 
+## HOW TO USE IT
 
-HOW TO USE IT
--------------
 This section could explain how to use the model, including a description of each of the items in the interface tab.
 
+## THINGS TO NOTICE
 
-THINGS TO NOTICE
-----------------
 This section could give some ideas of things for the user to notice while running the model.
 
+## THINGS TO TRY
 
-THINGS TO TRY
--------------
 This section could give some ideas of things for the user to try to do (move sliders, switches, etc.) with the model.
 
+## EXTENDING THE MODEL
 
-EXTENDING THE MODEL
--------------------
 This section could give some ideas of things to add or change in the procedures tab to make the model more complicated, detailed, accurate, etc.
 
+## NETLOGO FEATURES
 
-NETLOGO FEATURES
-----------------
 This section could point out any especially interesting or unusual features of NetLogo that the model makes use of, particularly in the Procedures tab.  It might also point out places where workarounds were needed because of missing features.
 
+## RELATED MODELS
 
-RELATED MODELS
---------------
 This section could give the names of models in the NetLogo Models Library or elsewhere which are of related interest.
 
+## CREDITS AND REFERENCES
 
-CREDITS AND REFERENCES
-----------------------
 This section could contain a reference to the model's URL on the web if it has one, as well as any other necessary credits or references.
 @#$#@#$#@
 default
@@ -880,7 +856,7 @@ Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 
 @#$#@#$#@
-NetLogo 4.1
+NetLogo 5.0RC5
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
